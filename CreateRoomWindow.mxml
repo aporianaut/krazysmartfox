@@ -7,9 +7,6 @@
 	
 	<mx:Script>
 		<![CDATA[
-			//new comment added here, please delete
-			//second comment here
-			
 			import mx.managers.PopUpManager;
 
 			public function init():void
