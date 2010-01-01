@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mx:TitleWindow xmlns:mx="http://www.adobe.com/2006/mxml" 
+				layout="absolute" 
+				width="400" 
+				height="144" 
+				title="Send Private Message"
+				creationComplete="init()">
+				
+	<mx:Script>
+		<![CDATA[
+			import mx.managers.PopUpManager
+			
+			public function init() : void
+			{
+				PopUpManager.centerPopUp(this)
+			}
+			
+			public function closeMe() : void
+			{
+				PopUpManager.removePopUp(this)
+			}
+			
+		]]>
+	</mx:Script>
+	
+	<mx:Label x="10" y="10" text="Private Message:"/>
+	<mx:TextInput x="10" y="36" width="360" id="tf_message"/>
+	<mx:Button x="10" y="66" label="Send" width="101" id="bt_send"/>
+	<mx:Button x="119" y="66" label="Close" width="101" click="closeMe()"/>
+</mx:TitleWindow>

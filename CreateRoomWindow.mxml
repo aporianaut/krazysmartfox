@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mx:TitleWindow xmlns:mx="http://www.adobe.com/2006/mxml" 
+				layout="absolute" 
+				width="324" 
+				height="156" 
+				title="Create new room" creationComplete="init()">
+	
+	<mx:Script>
+		<![CDATA[
+			import mx.managers.PopUpManager;
+
+			public function init():void
+			{
+				PopUpManager.centerPopUp(this)
+			}
+			
+			public function validate():void
+			{
+				if (tf_roomName.text.length > 0)
+				{
+					removeMe()
+				}
+			}
+			
+			public function removeMe():void
+			{
+				PopUpManager.removePopUp(this)
+			}
+		]]>
+	</mx:Script>
+	<mx:Label x="10" y="10" text="Room name"/>
+	<mx:Label x="225" y="10" text="Max. users"/>
+	<mx:TextInput x="10" y="36" width="190" id="tf_roomName"/>
+	<mx:NumericStepper x="225" y="36" id="ns_maxusers" minimum="2" maximum="30" stepSize="1" value="10"/>
+	<mx:Button x="10" y="83" label="Create!" width="91" color="#ff0000" click="validate()" id="bt_create"/>
+	<mx:Button x="106.5" y="83" label="Cancel" width="91" click="removeMe()"/>
+</mx:TitleWindow>

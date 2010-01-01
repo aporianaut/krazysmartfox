@@ -1,0 +1,548 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mx:Application xmlns:mx="http://www.adobe.com/2006/mxml" 
+				layout="absolute" 
+				backgroundGradientColors="[#990000, #ff9900]"
+				creationComplete="initApp()"
+				frameRate="31">
+	
+	<!--
+		SmartFoxServer Actionscript 3.0 example application:
+		
+		SmartFoxChat
+		version 1.0.0 beta
+	-->
+	
+	<mx:Script>
+		<![CDATA[
+			import mx.containers.TitleWindow;
+			import mx.collections.ArrayCollection;
+			import mx.collections.SortField;
+			import mx.collections.Sort;
+			import mx.managers.PopUpManager
+			import mx.core.IFlexDisplayObject
+			
+			import it.gotoandplay.smartfoxserver.SmartFoxClient
+			import it.gotoandplay.smartfoxserver.SFSEvent
+			import it.gotoandplay.smartfoxserver.data.Room
+			import it.gotoandplay.smartfoxserver.data.User
+
+			private var sfs:SmartFoxClient
+			private var roomListEvent:SFSEvent
+			private var createRoomWin:TitleWindow
+			private var pmWindow:TitleWindow
+			private var pmUserId:int
+			private var chatViewInited:Boolean
+			
+			// Connection constants
+			private const serverIp:String = "192.168.1.102"
+			private const serverPort:int = 9339
+			private const serverZone:String = "simpleChat"
+				
+			/**
+			* Application start
+			*/
+			public function initApp():void
+			{
+				pmUserId = -1
+				chatViewInited = false
+				
+				// Create server instance
+				sfs = new SmartFoxClient(true)
+				
+				// Add event listeners
+				sfs.addEventListener(SFSEvent.onConnection, onConnection)
+				sfs.addEventListener(SFSEvent.onLogin, onLogin)
+				sfs.addEventListener(SFSEvent.onRoomListUpdate, onRoomListUpdate)
+				sfs.addEventListener(SFSEvent.onUserCountChange, onUserCountChange)
+				sfs.addEventListener(SFSEvent.onJoinRoom, onJoinRoom)
+				sfs.addEventListener(SFSEvent.onJoinRoomError, onJoinRoomError)
+				sfs.addEventListener(SFSEvent.onRoomAdded, onRoomAdded)
+				sfs.addEventListener(SFSEvent.onRoomDeleted, onRoomDeleted)
+				sfs.addEventListener(SFSEvent.onCreateRoomError, onCreateRoomError)
+				sfs.addEventListener(SFSEvent.onPublicMessage, onPublicMessage)
+				sfs.addEventListener(SFSEvent.onPrivateMessage, onPrivateMessage)
+				sfs.addEventListener(SFSEvent.onUserEnterRoom, onUserEnterRoom)
+				sfs.addEventListener(SFSEvent.onUserLeaveRoom, onUserLeaveRoom)
+				sfs.addEventListener(SFSEvent.onConnectionLost, onConnectionLost)
+				
+				
+				// Connecto to server
+				connect()
+			}
+			
+			/*
+			* Establish connection with the server
+			*/
+			public function connect():void
+			{
+				sfs.connect(serverIp, serverPort)
+			}
+			
+			//---------------------------------------------------------------------
+			// SmartFoxClient Event Handlers
+			//---------------------------------------------------------------------
+			
+			/*
+			* Handler Server connection
+			*/
+			public function onConnection(evt:SFSEvent):void
+			{
+				var ok:Boolean = evt.params.success
+				
+				if (ok)
+				{
+					viewstack.selectedChild = view_login
+				}
+				else
+				{
+					lb_connStatus.text = "Failed connecting to " + serverIp + ":" + serverPort 
+				}
+			}
+			
+			/*
+			* Handler login event
+			*/
+			public function onLogin(evt:SFSEvent):void
+			{
+				var ok:Boolean = evt.params.success
+
+				if (!ok)
+				{
+					lb_errorMsg.text = evt.params.error
+				}
+			}
+			
+			/*
+			* Handler the room list
+			* 
+			* Before we can use the components in the "view_chat" screen of the viewstack
+			* we have to wait for them to initialize.
+			*
+			* This happens once only, so we keep a flag called "chatViewInited" to check
+			* if this is the first time we show the chat screen
+			*
+			* The populateRoomList method is automatically called by the view_chat Canvas component
+			* when it fires the creationComplet event
+			*/
+			public function onRoomListUpdate(evt:SFSEvent):void
+			{
+				roomListEvent = evt
+				viewstack.selectedChild = view_chat
+				
+				if (chatViewInited)
+					populateRoomList()
+			}
+			
+			/*
+			* Handler a join room event
+			*/
+			public function onJoinRoom(evt:SFSEvent):void
+			{
+				var room:Room = evt.params.room as Room						
+				var provider:ArrayCollection = new ArrayCollection()
+				
+				// Set the selection in the room list component
+				setRoomListSelection(room)
+				
+				// Cycle through all users in the list and add them to the provider
+				for each(var u:User in room.getUserList())
+				{
+					provider.addItem( {label:u.getName(), data:u.getId()} )
+				}
+				
+				// Add a sort field to the room list component. Names will be sorted alphabetically
+				if (provider.sort == null)
+				{
+					var sort:Sort = new Sort()
+					sort.fields = [new SortField("label")]
+					
+					provider.sort = sort
+				}
+				
+				provider.refresh()
+				userList.dataProvider = provider
+				
+				ta_chat.htmlText = "<font color='#cc0000'>{ Room <b>" + room.getName() + "</b> joined }</font><br>"
+			}
+			
+			/*
+			* Handle error while joining a room
+			*/
+			public function onJoinRoomError(evt:SFSEvent):void
+			{
+				var warning:WarningWindow = PopUpManager.createPopUp(this, WarningWindow, true) as WarningWindow
+				warning.setWarning("Room join error:\n" + evt.params.error)
+				
+				// Set the selection in the room list component
+				setRoomListSelection(sfs.getActiveRoom())
+			}
+			
+			/*
+			* Handle an error while creating a room
+			*/
+			public function onCreateRoomError(evt:SFSEvent):void
+			{
+				var warning:WarningWindow = PopUpManager.createPopUp(this, WarningWindow, true) as WarningWindow
+				warning.setWarning("Room creation error:\n" + evt.params.error)		
+			}
+			
+			/*
+			* Handle a new room in the room list
+			*/
+			public function onRoomAdded(evt:SFSEvent):void
+			{
+				var room:Room = evt.params.room
+				
+				// Update view
+				var provider:ArrayCollection = roomList.dataProvider as ArrayCollection
+				var label:String = room.getName() + " (" + room.getUserCount() + "/" + room.getMaxUsers() + ")"
+				
+				provider.addItem( {label:label, data:room.getId()} )
+				provider.refresh()				
+				
+				roomList.invalidateList()
+			}
+			
+			/*
+			* Handle a room that was removed
+			*/
+			public function onRoomDeleted(evt:SFSEvent):void
+			{
+				var room:Room = evt.params.room
+				var roomId:int = room.getId()
+				
+				var provider:ArrayCollection = roomList.dataProvider as ArrayCollection
+				
+				for each (var o:Object in provider)
+				{
+					if (o.data == roomId)
+					{
+						provider.removeItemAt(provider.getItemIndex(o))
+						break
+					}
+				}
+				
+				provider.refresh()
+				roomList.invalidateList()
+			}
+			
+			/*
+			* Handle a count change in one room of the zone
+			*/
+			public function onUserCountChange(evt:SFSEvent):void
+			{
+				var r:Room = evt.params.room as Room
+				var id:int = r.getId()
+				
+				// Cycle through all rooms in the list and find the one that changed
+				for each (var o:Object in roomList.dataProvider)
+				{
+					if (o.data == id)
+					{
+						o.label = r.getName() + " (" + r.getUserCount() + "/" + r.getMaxUsers() + ")"
+						break
+					}
+				}
+				
+				roomList.invalidateList()
+			}
+			
+			/*
+			* Handle a public message
+			*/
+			public function onPublicMessage(evt:SFSEvent):void
+			{
+				var message:String = evt.params.message
+				var sender:User = evt.params.sender
+				
+				ta_chat.htmlText += "<b>[" + sender.getName() + "]:</b> " + message +"<br>"
+				ta_chat.verticalScrollPosition = ta_chat.maxVerticalScrollPosition
+			}
+			
+			/*
+			* Handle a private message
+			*/
+			public function onPrivateMessage(evt:SFSEvent):void
+			{
+				var message:String = evt.params.message
+				var sender:User = evt.params.sender
+				
+				ta_chat.htmlText += "<b><font color='#550000'>[PM - " + sender.getName() + "]:</font></b> " + message +"<br>"
+			}
+			
+			/*
+			* Handle a new user that just entered the current room
+			*/
+			public function onUserEnterRoom(evt:SFSEvent):void
+			{
+				var roomId:int = evt.params.room as int
+				var user:User = evt.params.user as User
+				
+				var provider:ArrayCollection = userList.dataProvider as ArrayCollection
+
+				provider.addItem( {label:user.getName(), data:user.getId()} )
+				provider.refresh()				
+				
+				userList.invalidateList()
+			}
+			
+			/*
+			* Handle a user who left the room
+			*/
+			public function onUserLeaveRoom(evt:SFSEvent):void
+			{
+				var roomId:int = evt.params.roomId as int
+				var userId:int = evt.params.userId as int
+				
+				var provider:ArrayCollection = userList.dataProvider as ArrayCollection
+				
+				for each (var o:Object in provider)
+				{
+					if (o.data == userId)
+					{
+						provider.removeItemAt(provider.getItemIndex(o))	
+						break
+					}
+				}
+				
+				userList.invalidateList()
+			} 
+			
+			/*
+			* Handle disconnection
+			*/
+			public function onConnectionLost(evt:SFSEvent):void
+			{
+				viewstack.selectedChild = view_logout
+			}
+			
+			
+			//---------------------------------------------------------------------
+			// GUI Event Handlers
+			//---------------------------------------------------------------------
+			public function bt_enter_click():void
+			{
+				if (tf_name.text.length > 0)
+				{
+					// Send login
+					sfs.login(serverZone, tf_name.text, "")
+				}
+			}
+			
+			/*
+			* Launch the create room window
+			*/
+			public function bt_create_click():void
+			{
+				createRoomWin = PopUpManager.createPopUp(this, CreateRoomWindow, true) as TitleWindow
+				createRoomWin["bt_create"].addEventListener("click", handleCreateRoom)
+			}
+			
+			/*
+			* Log the user out and close connection
+			*/
+			public function bt_logout_click():void
+			{
+				sfs.disconnect()
+				viewstack.selectedChild = view_logout
+			}
+			
+			/*
+			* Join a new room when an item is selected in the room list component
+			*/
+			public function roomList_change():void
+			{
+				var roomId:int = int(roomList.selectedItem.data)
+				
+				// Join room
+				sfs.joinRoom(roomId)
+			}
+			
+			/*
+			* Send a public message to all users in the room
+			*/
+			public function bt_send_click():void
+			{
+				if (tf_pubmsg.text.length > 0)
+				{
+					sfs.sendPublicMessage(tf_pubmsg.text)
+					tf_pubmsg.text = ""
+				}
+			}
+			
+			/*
+			* Show the private message dialogue
+			*/
+			public function userList_change():void
+			{
+				pmUserId = userList.selectedItem.data
+				
+				if (pmUserId != sfs.myUserId)
+				{	
+					pmWindow = PopUpManager.createPopUp(this, PmWindow, true) as TitleWindow
+					pmWindow["bt_send"].addEventListener("click", handleSendPm)
+				}
+			}
+			
+			/*
+			* Send the create room request to the server
+			*/
+			public function handleCreateRoom(evt:Event):void
+			{
+				var roomName:String = createRoomWin["tf_roomName"].text
+				var rooMaxU:int = createRoomWin["ns_maxusers"].value	
+				
+				if (roomName.length > 0)
+				{
+					// Set room properties
+					var roomObj:Object = {}
+					roomObj.name = roomName
+					roomObj.maxUsers = rooMaxU
+					
+					// Create the room!
+					sfs.createRoom(roomObj)
+				}		
+			}
+			
+			/*
+			* Send the private message
+			*/
+			public function handleSendPm(evt:Event):void
+			{
+				var message:String = pmWindow["tf_message"].text
+				
+				if (message.length > 0 && pmUserId > 0)
+				{
+					sfs.sendPrivateMessage(message, pmUserId)
+					pmUserId = -1
+					
+					// Remove window
+					PopUpManager.removePopUp(pmWindow)
+				}
+			}
+			
+			/*
+			* From the logout screen start a new connection
+			*/
+			public function backToLoginScreen():void
+			{
+				viewstack.selectedChild = view_connecting
+				connect()
+			}
+			
+			/*
+			* Populate the list of rooms
+			*/
+			public function populateRoomList():void
+			{
+				if (!chatViewInited)
+					chatViewInited = true
+					
+				var rList:Array = roomListEvent.params.roomList as Array
+				var provider:ArrayCollection
+				
+				// If this is not the first time we initialize the provider
+				// we have to clear the old content
+				if (roomList.dataProvider != null)
+				{
+					provider = roomList.dataProvider as ArrayCollection
+					provider.removeAll()
+				}
+				else
+				{
+					provider = new ArrayCollection()
+					roomList.dataProvider = provider
+				}
+				
+				// Populate the data provider with list of rooms
+				for each(var r:Room in rList)
+				{
+					var txt:String = r.getName() + " (" + r.getUserCount() + "/" + r.getMaxUsers() + ")"
+					provider.addItem( {label:txt, data:r.getId()} )
+				}
+
+				// Sort provider
+				if (provider.sort == null)
+				{
+					var sort:Sort = new Sort()
+					sort.fields = [new SortField("label")]
+					
+					provider.sort = sort
+				}
+				
+				roomList.dataProvider = provider
+				roomList.invalidateList()
+				
+				provider.refresh()
+				
+				// Join the default room
+				sfs.autoJoin()
+			}
+			
+			// Set the passed room as the selected item in the room list component
+			public function setRoomListSelection(room:Room):void
+			{
+				var provider:ArrayCollection = roomList.dataProvider as ArrayCollection
+				var id:int = room.getId()
+				
+				for each (var item:Object in provider)
+				{
+					if (item.data == id)
+					{
+						roomList.selectedItem = item
+						break
+					}
+				}
+			}
+		]]>
+	</mx:Script>
+	
+	<!--
+		We use a viewstack component with four main "screens"
+		
+		view_connecting	-> shows the connection screen with the loading bar
+		view_login		-> shows the login box
+		view_chat		-> the main chat screen
+		view_logout		-> the logout screen
+	-->
+	<mx:ViewStack id="viewstack" left="10" right="10" top="10" bottom="10" selectedIndex="0">
+		<mx:Canvas width="100%" height="100%" id="view_connecting">
+			<mx:Panel width="362" height="260" layout="absolute" horizontalCenter="0.5" verticalCenter="-7" title="::.. Connection ..::" color="#ffffff">
+				<mx:Label y="115" text="Connecting to server ..." horizontalCenter="0.5" width="321" textAlign="center" height="21" fontWeight="bold" fontSize="14" color="#ff0000" id="lb_connStatus"/>
+				<mx:Image y="23" source="images/foxey.png" horizontalCenter="0"/>
+				<mx:ProgressBar y="154" indeterminate="true" enabled="true" horizontalCenter="0" barColor="#ff3300"/>
+			</mx:Panel>
+		</mx:Canvas>
+		<mx:Canvas width="100%" height="100%" id="view_login">
+			<mx:Panel width="362" height="260" layout="absolute" horizontalCenter="0.5" verticalCenter="0.5" title="Login" color="#ffffff">
+				<mx:TextInput x="69.5" y="127" width="203" color="#000000" id="tf_name" textAlign="center" themeColor="#ffcc00"/>
+				<mx:Label y="100" text="Type your user name:" textAlign="center" color="#800000" fontWeight="bold" horizontalCenter="1" width="236"/>
+				<mx:Label x="10" y="197" textAlign="center" color="#ff0000" fontWeight="bold" width="322" id="lb_errorMsg"/>
+				<mx:Button x="124.5" y="169" label="Enter" width="93" color="#333333" id="bt_enter" click="bt_enter_click()" themeColor="#ffcc00"/>
+				<mx:Image x="138" y="18" source="images/foxey.png"/>
+			</mx:Panel>
+		</mx:Canvas>
+		<mx:Canvas width="100%" height="100%" id="view_chat" creationComplete="populateRoomList()">
+			<mx:Panel width="695" height="537" layout="absolute" horizontalCenter="0" verticalCenter="0.5" title="::.. SmartFoxChat ..:: ( 1.0.0 beta )" backgroundColor="#f0f0f0">
+				<mx:TextArea x="10" y="37" height="382" width="458" id="ta_chat" fontSize="11" themeColor="#ffcc00"/>
+				<mx:List x="476" y="37" width="189" height="172" id="roomList" rollOverColor="#ffff66" selectionColor="#FFCC00" change="roomList_change()" themeColor="#ffcc00"></mx:List>
+				<mx:List x="476" y="273" width="189" height="146" rollOverColor="#ffff66"  selectionColor="#FFCC00" id="userList" change="userList_change()" themeColor="#ffcc00"></mx:List>
+				<mx:Label x="476" y="18" text=":: ROOM LIST"/>
+				<mx:Label x="10" y="18" text=":: CHAT HISTORY"/>
+				<mx:Label x="476" y="247" text=":: USER LIST"/>
+				<mx:TextInput x="10" y="428" width="289" id="tf_pubmsg" themeColor="#ffcc00"/>
+				<mx:Button x="307" y="427" label="Send &gt;&gt;" width="75" click="bt_send_click()" themeColor="#ffcc00"/>
+				<mx:Button x="390" y="427" label="LOG OUT" width="78" color="#ff0000" click="bt_logout_click()" themeColor="#ffcc00"/>
+				<mx:Button x="476" y="217" label="Create room" width="104"  click="bt_create_click()"/>
+				<mx:HRule y="457" width="655" left="10" height="14"/>
+				<mx:Label text="(c) 2006 gotoAndPlay() -- www.gotoandplay.it -- www.smartfoxserver.com" width="655" textAlign="center" color="#333333" y="472"/>
+			</mx:Panel>
+		</mx:Canvas>
+		<mx:Canvas width="100%" height="100%" id="view_logout">
+			<mx:Panel width="406" height="200" layout="absolute" horizontalCenter="0.5" verticalCenter="-7" title="::.. Logged out ..::" color="#ffffff">
+				<mx:Button y="88" label="Return to login screen" width="198" horizontalCenter="0" color="#333333" click="backToLoginScreen()" themeColor="#ffcc00"/>
+				<mx:Label y="45" text="Connection was lost" horizontalCenter="0" width="273" textAlign="center" height="29" fontWeight="bold" fontSize="18" color="#ff0000"/>
+			</mx:Panel>
+		</mx:Canvas>
+	</mx:ViewStack>
+</mx:Application>

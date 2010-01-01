@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mx:TitleWindow xmlns:mx="http://www.adobe.com/2006/mxml" 
+				layout="absolute" 
+				width="400" 
+				height="246" 
+				title="Warning!"
+				creationComplete="init()">
+				
+	<mx:Script>
+		<![CDATA[
+			import mx.managers.PopUpManager
+			
+			public function init() : void
+			{
+				PopUpManager.centerPopUp(this)
+			}
+			
+			public function closeMe() : void
+			{
+				PopUpManager.removePopUp(this)
+			}
+			
+			public function setWarning(message:String) : void
+			{
+				this.tf_warning.text = message
+			}
+		]]>
+	</mx:Script>
+	<mx:Text y="10" text="Text" height="151" width="360" textAlign="center" fontWeight="bold" color="#CC0000" fontSize="18" horizontalCenter="0" id="tf_warning"/>
+	<mx:Button y="169" label="OK" horizontalCenter="0.5" width="101" click="closeMe()"/>
+	
+</mx:TitleWindow>
